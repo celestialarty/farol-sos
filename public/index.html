@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Farol SOS — Painel</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  :root { --bg:#0d0f12; --painel:#16191e; --linha:#262a31; --texto:#e8e6e1; --fraco:#8a8f98; --sos:#ff3b30; --ok:#34c759; --atencao:#ffb020; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--texto); font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif; height:100vh; display:grid; grid-template-rows:auto 1fr; }
+  header { display:flex; align-items:center; gap:12px; padding:12px 16px; border-bottom:1px solid var(--linha); }
+  header h1 { font-size:17px; margin:0; letter-spacing:.04em; }
+  .luz { width:10px; height:10px; border-radius:50%; background:var(--fraco); }
+  .luz.on { background:var(--ok); box-shadow:0 0 8px var(--ok); }
+  .contador { margin-left:auto; color:var(--fraco); font-variant-numeric:tabular-nums; }
+  main { display:grid; grid-template-columns:minmax(300px,420px) 1fr; min-height:0; }
+  #lista { overflow:auto; border-right:1px solid var(--linha); }
+  #mapa { min-height:300px; }
+  .alerta { padding:14px 16px; border-bottom:1px solid var(--linha); cursor:pointer; border-left:3px solid var(--sos); }
+  .alerta.atendendo { border-left-color:var(--atencao); }
+  .alerta.resolvido { border-left-color:var(--ok); opacity:.55; }
+  .alerta.flash { animation:flash 1.2s ease-out 3; }
+  @keyframes flash { 0%{background:#ff3b3033} 100%{background:transparent} }
+  .topo { display:flex; gap:8px; align-items:baseline; }
+  .tipo { font-weight:600; text-transform:uppercase; font-size:13px; letter-spacing:.06em; }
+  .hora { margin-left:auto; color:var(--fraco); font-size:13px; }
+  .msg { margin:4px 0 8px; }
+  .meta { display:flex; flex-wrap:wrap; gap:6px; font-size:12px; color:var(--fraco); }
+  .tag { border:1px solid var(--linha); border-radius:4px; padding:1px 6px; }
+  .acoes { display:flex; gap:6px; margin-top:10px; }
+  button { background:var(--painel); color:var(--texto); border:1px solid var(--linha); border-radius:6px; padding:5px 10px; font:inherit; font-size:13px; cursor:pointer; }
+  button:hover { border-color:var(--fraco); }
+  .vazio { padding:40px 16px; color:var(--fraco); text-align:center; }
+  #banner { position:fixed; inset:auto 16px 16px auto; background:var(--sos); color:#fff; padding:12px 16px; border-radius:8px; font-weight:600; display:none; z-index:999; }
+  @media (max-width:760px) { main { grid-template-columns:1fr; grid-template-rows:40vh 1fr; } #mapa{order:-1} #lista{border-right:0} }
+</style>
+</head>
+<body>
+<header>
+  <span class="luz" id="luz"></span>
+  <h1>FAROL SOS · PAINEL</h1>
+  <span class="contador" id="contador">—</span>
+</header>
+<main>
+  <section id="lista"><div class="vazio">Aguardando alertas…</div></section>
+  <section id="mapa"></section>
+</main>
+<div id="banner"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const ROTULOS = { medico:'Médico', fogo:'Fogo', violencia:'Violência', acidente:'Acidente', desastre:'Desastre', perdido:'Perdido', outro:'Outro' };
+const CANAIS = { internet:'Internet', sms:'SMS · operadora', retransmissao:'Retransmitido' };
+const alertas = new Map();
+const marcadores = new Map();
+
+const mapa = L.map('mapa').setView([-15.8, -47.9], 4);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution:'© OpenStreetMap', maxZoom:19 }).addTo(mapa);
+
+function hora(iso) { return new Date(iso).toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit', second:'2-digit' }); }
+function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+function desenhar(destacar) {
+  const lista = document.getElementById('lista');
+  const ordenados = [...alertas.values()].sort((a, b) => (a.status === 'resolvido') - (b.status === 'resolvido') || b.recebidoEm.localeCompare(a.recebidoEm));
+  const abertos = ordenados.filter(a => a.status !== 'resolvido').length;
+  document.getElementById('contador').textContent = `${abertos} em aberto · ${ordenados.length} no total`;
+  if (!ordenados.length) { lista.innerHTML = '<div class="vazio">Aguardando alertas…</div>'; return; }
+  lista.innerHTML = ordenados.map(a => `
+    <article class="alerta ${a.status} ${a.id === destacar ? 'flash' : ''}" data-id="${esc(a.id)}">
+      <div class="topo"><span class="tipo">${ROTULOS[a.tipo] || a.tipo}</span><span class="hora">${hora(a.recebidoEm)}</span></div>
+      <div class="msg">${esc(a.mensagem) || '<i style="color:var(--fraco)">sem mensagem</i>'}</div>
+      <div class="meta">
+        ${a.canais.map(c => `<span class="tag">${CANAIS[c] || c}</span>`).join('')}
+        ${a.saltos ? `<span class="tag">${a.saltos} salto(s)</span>` : ''}
+        ${a.recebimentos > 1 ? `<span class="tag">recebido ${a.recebimentos}×</span>` : ''}
+        ${a.origem ? `<span class="tag">${esc(a.origem)}</span>` : ''}
+        ${a.lat == null ? '<span class="tag">sem localização</span>' : ''}
+        <span class="tag">#${esc(a.id)}</span>
+      </div>
+      <div class="acoes">
+        <button data-status="atendendo">Atendendo</button>
+        <button data-status="resolvido">Resolvido</button>
+      </div>
+    </article>`).join('');
+}
+
+function marcar(a) {
+  if (a.lat == null) return;
+  const cor = a.status === 'resolvido' ? '#34c759' : a.status === 'atendendo' ? '#ffb020' : '#ff3b30';
+  marcadores.get(a.id)?.remove();
+  const m = L.circleMarker([a.lat, a.lon], { radius:9, color:cor, fillColor:cor, fillOpacity:.6 })
+    .bindPopup(`<b>${ROTULOS[a.tipo]}</b><br>${esc(a.mensagem)}<br><small>#${esc(a.id)}</small>`).addTo(mapa);
+  marcadores.set(a.id, m);
+}
+
+function receber(a, novo) {
+  alertas.set(a.id, a);
+  marcar(a);
+  desenhar(novo ? a.id : null);
+  if (novo) {
+    const b = document.getElementById('banner');
+    b.textContent = `NOVO ALERTA: ${ROTULOS[a.tipo]} — ${a.mensagem || 'sem mensagem'}`;
+    b.style.display = 'block';
+    setTimeout(() => b.style.display = 'none', 6000);
+    if (a.lat != null) mapa.flyTo([a.lat, a.lon], 15);
+    bip();
+    if (Notification?.permission === 'granted') new Notification('Farol SOS', { body:`${ROTULOS[a.tipo]}: ${a.mensagem}` });
+  }
+}
+
+function bip() {
+  try {
+    const ctx = new AudioContext(), o = ctx.createOscillator(), g = ctx.createGain();
+    o.frequency.value = 880; o.connect(g); g.connect(ctx.destination);
+    g.gain.setValueAtTime(.2, ctx.currentTime); g.gain.exponentialRampToValueAtTime(.001, ctx.currentTime + .6);
+    o.start(); o.stop(ctx.currentTime + .6);
+  } catch {}
+}
+
+document.getElementById('lista').addEventListener('click', async e => {
+  const card = e.target.closest('.alerta'); if (!card) return;
+  const status = e.target.dataset.status;
+  if (status) {
+    await fetch(`/api/alertas/${encodeURIComponent(card.dataset.id)}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ status }) });
+  } else {
+    const a = alertas.get(card.dataset.id);
+    if (a?.lat != null) { mapa.flyTo([a.lat, a.lon], 16); marcadores.get(a.id)?.openPopup(); }
+  }
+});
+
+fetch('/api/alertas').then(r => r.json()).then(lista => { lista.forEach(a => { alertas.set(a.id, a); marcar(a); }); desenhar(); });
+
+const fonte = new EventSource('/api/stream');
+const luz = document.getElementById('luz');
+fonte.onopen = () => luz.classList.add('on');
+fonte.onerror = () => luz.classList.remove('on');
+fonte.addEventListener('novo', e => receber(JSON.parse(e.data), true));
+fonte.addEventListener('atualizado', e => receber(JSON.parse(e.data), false));
+
+if (window.Notification && Notification.permission === 'default') document.body.addEventListener('click', () => Notification.requestPermission(), { once:true });
+</script>
+</body>
+</html>

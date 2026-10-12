@@ -1,0 +1,9 @@
+{
+  "name": "Farol SOS",
+  "short_name": "Farol SOS",
+  "start_url": "/sos.html",
+  "display": "standalone",
+  "background_color": "#0d0f12",
+  "theme_color": "#0d0f12",
+  "icons": [{ "src": "/icone.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

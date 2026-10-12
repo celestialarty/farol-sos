@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0d0f12">
+<link rel="manifest" href="/manifest.webmanifest">
+<title>Farol SOS</title>
+<style>
+  :root { --bg:#0d0f12; --painel:#16191e; --linha:#262a31; --texto:#e8e6e1; --fraco:#8a8f98; --sos:#ff3b30; --ok:#34c759; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--texto); font:16px/1.45 system-ui,-apple-system,sans-serif; padding:20px 16px 40px; max-width:480px; margin-inline:auto; }
+  h1 { font-size:15px; letter-spacing:.12em; color:var(--fraco); text-align:center; margin:0 0 20px; }
+  #botao { display:block; width:min(68vw,260px); aspect-ratio:1; margin:0 auto 24px; border-radius:50%; border:0; background:radial-gradient(circle at 35% 30%,#ff6a60,var(--sos) 60%,#b3201a); color:#fff; font-size:44px; font-weight:800; letter-spacing:.08em; box-shadow:0 0 0 10px #ff3b3022,0 0 0 22px #ff3b3011; cursor:pointer; -webkit-tap-highlight-color:transparent; }
+  #botao:active { transform:scale(.97); }
+  #botao.segurando { animation:pulso .4s infinite alternate; }
+  @keyframes pulso { to { box-shadow:0 0 0 18px #ff3b3044,0 0 0 34px #ff3b3022; } }
+  .dica { text-align:center; color:var(--fraco); font-size:13px; margin:-12px 0 20px; }
+  .tipos { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-bottom:12px; }
+  .tipos label { border:1px solid var(--linha); border-radius:8px; padding:8px 2px; text-align:center; font-size:13px; cursor:pointer; }
+  .tipos input { display:none; }
+  .tipos input:checked + span { color:var(--sos); font-weight:700; }
+  .tipos label:has(input:checked) { border-color:var(--sos); }
+  textarea { width:100%; background:var(--painel); color:var(--texto); border:1px solid var(--linha); border-radius:8px; padding:10px; font:inherit; resize:vertical; min-height:64px; }
+  #status { margin-top:20px; padding:14px; border-radius:8px; background:var(--painel); border:1px solid var(--linha); display:none; }
+  #status.ok { border-color:var(--ok); }
+  #status.falha { border-color:var(--sos); }
+  #status a.btn, #status button { display:block; text-align:center; margin-top:10px; padding:12px; border-radius:8px; background:var(--texto); color:var(--bg); font-weight:700; text-decoration:none; border:0; font-size:15px; width:100%; }
+  #qr { background:#fff; padding:12px; border-radius:8px; margin:12px auto 0; width:fit-content; }
+  small { color:var(--fraco); }
+</style>
+</head>
+<body>
+<h1>FAROL SOS</h1>
+<button id="botao" aria-label="Segure para enviar alerta de emergência">SOS</button>
+<p class="dica">Segure por 1 segundo para enviar</p>
+
+<div class="tipos" id="tipos"></div>
+<textarea id="mensagem" maxlength="120" placeholder="O que está acontecendo? (opcional)"></textarea>
+
+<div id="status"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="/shared/protocol.js"></script>
+<script>
+const P = window.FarolProtocolo;
+// Número do gateway que recebe os SMS (chip no celular-gateway ou número Twilio).
+// Configure abrindo /sos.html?sms=+5531999999999 uma vez — fica salvo.
+const params = new URLSearchParams(location.search);
+const guardado = k => { try { return localStorage.getItem(k); } catch { return null; } };
+const guardar = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+if (params.get('sms')) guardar('farol.sms', params.get('sms'));
+const NUMERO_SMS = guardado('farol.sms') || '';
+
+const ROTULOS = { medico:'Médico', fogo:'Fogo', violencia:'Violência', acidente:'Acidente', desastre:'Desastre', perdido:'Perdido', outro:'Outro' };
+document.getElementById('tipos').innerHTML = Object.entries(ROTULOS).map(([v, r], i) =>
+  `<label><input type="radio" name="tipo" value="${v}" ${v === 'outro' ? 'checked' : ''}><span>${r}</span></label>`).join('');
+
+// ----- fila offline: o que não saiu fica guardado e é reenviado quando a rede voltar -----
+const fila = () => { try { return JSON.parse(guardado('farol.fila') || '[]'); } catch { return []; } };
+const salvarFila = f => guardar('farol.fila', JSON.stringify(f));
+async function esvaziarFila() {
+  const f = fila(); if (!f.length) return;
+  try {
+    const r = await fetch('/api/alertas', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(f) });
+    if (r.ok) { salvarFila([]); mostrar('ok', `<b>Alerta da fila entregue.</b><br><small>A conexão voltou e ${f.length} alerta(s) pendente(s) foram enviados.</small>`); }
+  } catch {}
+}
+addEventListener('online', esvaziarFila);
+setInterval(esvaziarFila, 15000);
+esvaziarFila();
+
+function posicao() {
+  return new Promise(ok => {
+    if (!navigator.geolocation) return ok({});
+    navigator.geolocation.getCurrentPosition(
+      p => ok({ lat:p.coords.latitude, lon:p.coords.longitude }),
+      () => ok({}), { enableHighAccuracy:true, timeout:8000, maximumAge:60000 });
+  });
+}
+
+function mostrar(classe, html) {
+  const s = document.getElementById('status');
+  s.className = classe; s.style.display = 'block'; s.innerHTML = html;
+}
+
+async function enviar() {
+  navigator.vibrate?.(200);
+  mostrar('', 'Obtendo localização…');
+  const pos = await posicao();
+  const alerta = P.criarAlerta({
+    tipo: document.querySelector('input[name=tipo]:checked').value,
+    mensagem: document.getElementById('mensagem').value.trim(),
+    origem: 'web', ...pos,
+  });
+  mostrar('', 'Enviando…');
+
+  try {
+    const ctrl = new AbortController(); setTimeout(() => ctrl.abort(), 7000);
+    const r = await fetch('/api/alertas', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(alerta), signal:ctrl.signal });
+    if (!r.ok) throw new Error();
+    navigator.vibrate?.([100, 60, 100]);
+    mostrar('ok', `<b>Alerta enviado.</b> Ele já está aparecendo no painel.<br><small>Código ${alerta.id}${pos.lat == null ? ' · sem localização (GPS indisponível)' : ''}</small>`);
+  } catch {
+    // Sem internet: guarda na fila, oferece SMS pela operadora e QR para alguém perto repassar
+    salvarFila([...fila(), alerta]);
+    const sms = P.paraSms(alerta);
+    const sep = /iPhone|iPad/.test(navigator.userAgent) ? '&' : '?';
+    const linkSms = NUMERO_SMS ? `sms:${NUMERO_SMS}${sep}body=${encodeURIComponent(sms)}` : '';
+    const linkRelay = `${location.origin}/repassar.html#${btoa(unescape(encodeURIComponent(JSON.stringify(alerta))))}`;
+    mostrar('falha', `
+      <b>Sem internet.</b> O alerta ficou guardado e sai sozinho quando a rede voltar. Enquanto isso:
+      ${linkSms ? `<a class="btn" href="${linkSms}">1 · Enviar por SMS (só precisa de sinal da operadora)</a>`
+                : `<small><br>Nenhum número de gateway SMS configurado. Texto para mandar por SMS a quem puder ajudar:</small><br><code>${sms}</code>`}
+      <p style="margin:14px 0 0"><b>2 · Peça para alguém perto escanear:</b><br><small>O celular de quem escanear (com internet) repassa o alerta.</small></p>
+      <div id="qr"></div>`);
+    new QRCode(document.getElementById('qr'), { text:linkRelay, width:220, height:220, correctLevel:QRCode.CorrectLevel.L });
+  }
+}
+
+// Segurar 1 s evita disparo acidental no bolso
+const botao = document.getElementById('botao');
+let timer;
+const iniciar = e => { e.preventDefault(); botao.classList.add('segurando'); timer = setTimeout(() => { botao.classList.remove('segurando'); enviar(); }, 1000); };
+const cancelar = () => { clearTimeout(timer); botao.classList.remove('segurando'); };
+botao.addEventListener('pointerdown', iniciar);
+['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => botao.addEventListener(ev, cancelar));
+botao.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') enviar(); });
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+</script>
+</body>
+</html>

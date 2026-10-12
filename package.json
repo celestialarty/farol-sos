@@ -1,0 +1,13 @@
+{
+  "name": "farol-sos",
+  "version": "0.1.0",
+  "description": "Alertas de emergência por internet, SMS (rede da operadora) e retransmissão entre aparelhos próximos, exibidos ao vivo num painel.",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "test": "node --test"
+  },
+  "engines": { "node": ">=20" },
+  "license": "MIT",
+  "author": "Arthur José Silva Vilela"
+}

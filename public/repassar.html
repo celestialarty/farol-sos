@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Farol SOS — Repassar alerta</title>
+<style>
+  body { margin:0; background:#0d0f12; color:#e8e6e1; font:16px/1.45 system-ui,sans-serif; padding:24px 16px; max-width:480px; margin-inline:auto; }
+  .card { background:#16191e; border:1px solid #262a31; border-left:3px solid #ff3b30; border-radius:8px; padding:16px; }
+  .ok { border-left-color:#34c759; }
+  small { color:#8a8f98; }
+  #qr { background:#fff; padding:12px; border-radius:8px; margin:12px auto 0; width:fit-content; }
+</style>
+</head>
+<body>
+<h2>Você está repassando um pedido de socorro</h2>
+<div class="card" id="card">Lendo alerta…</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="/shared/protocol.js"></script>
+<script>
+const P = window.FarolProtocolo;
+const card = document.getElementById('card');
+const idAparelho = (() => { try { let i = localStorage.getItem('farol.aparelho'); if (!i) { i = 'R' + P.novoId(); localStorage.setItem('farol.aparelho', i); } return i; } catch { return 'R' + P.novoId(); } })();
+const vistos = new Set();
+
+(async () => {
+  let original;
+  try { original = JSON.parse(decodeURIComponent(escape(atob(location.hash.slice(1))))); }
+  catch { card.textContent = 'Este link de alerta está incompleto ou corrompido.'; return; }
+
+  const alerta = P.relay(original, idAparelho, vistos);
+  if (!alerta) { card.textContent = 'Este alerta já atingiu o limite de repasses.'; return; }
+  const resumo = `<b>${alerta.tipo.toUpperCase()}</b> — ${alerta.mensagem || 'sem mensagem'}<br><small>#${alerta.id} · ${alerta.saltos} repasse(s)</small>`;
+
+  try {
+    const r = await fetch('/api/alertas', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(alerta) });
+    if (!r.ok) throw new Error();
+    card.className = 'card ok';
+    card.innerHTML = `${resumo}<p><b>Alerta entregue à central.</b> Obrigado — você pode fechar esta página.</p>`;
+  } catch {
+    // Quem escaneou também está sem internet: vira mais um elo da corrente
+    card.innerHTML = `${resumo}<p><b>Você também está sem internet.</b> Mostre este código para outra pessoa escanear:</p><div id="qr"></div>`;
+    const link = `${location.origin}/repassar.html#${btoa(unescape(encodeURIComponent(JSON.stringify(alerta))))}`;
+    new QRCode(document.getElementById('qr'), { text:link, width:220, height:220, correctLevel:QRCode.CorrectLevel.L });
+    try { const f = JSON.parse(localStorage.getItem('farol.fila') || '[]'); localStorage.setItem('farol.fila', JSON.stringify([...f, alerta])); } catch {}
+  }
+})();
+</script>
+</body>
+</html>
