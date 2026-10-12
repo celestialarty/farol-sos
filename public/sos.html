@@ -40,10 +40,11 @@
 
 <div id="status"></div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="/vendor/qrcode.js"></script>
 <script src="/shared/protocol.js"></script>
 <script>
 const P = window.FarolProtocolo;
+function desenharQR(el, texto) { const q = qrcode(0, 'L'); q.addData(texto); q.make(); el.innerHTML = q.createSvgTag({ cellSize: 4, margin: 2 }); }
 // Número do gateway que recebe os SMS (chip no celular-gateway ou número Twilio).
 // Configure abrindo /sos.html?sms=+5531999999999 uma vez — fica salvo.
 const params = new URLSearchParams(location.search);
@@ -114,7 +115,7 @@ async function enviar() {
                 : `<small><br>Nenhum número de gateway SMS configurado. Texto para mandar por SMS a quem puder ajudar:</small><br><code>${sms}</code>`}
       <p style="margin:14px 0 0"><b>2 · Peça para alguém perto escanear:</b><br><small>O celular de quem escanear (com internet) repassa o alerta.</small></p>
       <div id="qr"></div>`);
-    new QRCode(document.getElementById('qr'), { text:linkRelay, width:220, height:220, correctLevel:QRCode.CorrectLevel.L });
+    desenharQR(document.getElementById('qr'), linkRelay);
   }
 }
 

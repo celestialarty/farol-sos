@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Farol SOS — Painel</title>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
 <style>
   :root { --bg:#0d0f12; --painel:#16191e; --linha:#262a31; --texto:#e8e6e1; --fraco:#8a8f98; --sos:#ff3b30; --ok:#34c759; --atencao:#ffb020; }
   * { box-sizing:border-box; }
@@ -47,7 +47,7 @@
   <section id="mapa"></section>
 </main>
 <div id="banner"></div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="/vendor/leaflet/leaflet.js"></script>
 <script>
 const ROTULOS = { medico:'Médico', fogo:'Fogo', violencia:'Violência', acidente:'Acidente', desastre:'Desastre', perdido:'Perdido', outro:'Outro' };
 const CANAIS = { internet:'Internet', sms:'SMS · operadora', retransmissao:'Retransmitido' };
@@ -129,7 +129,10 @@ document.getElementById('lista').addEventListener('click', async e => {
   }
 });
 
-fetch('/api/alertas').then(r => r.json()).then(lista => { lista.forEach(a => { alertas.set(a.id, a); marcar(a); }); desenhar(); });
+fetch('/api/alertas').then(r => r.json()).then(lista => { lista.forEach(a => { alertas.set(a.id, a); marcar(a); }); desenhar();
+  const pontos = lista.filter(a => a.lat != null).map(a => [a.lat, a.lon]);
+  if (pontos.length) mapa.fitBounds(pontos, { padding:[40, 40], maxZoom:15 });
+});
 
 const fonte = new EventSource('/api/stream');
 const luz = document.getElementById('luz');

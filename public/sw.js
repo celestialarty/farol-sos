@@ -1,8 +1,8 @@
 // Service worker: deixa a página do botão SOS abrindo mesmo sem internet.
-const CACHE = 'farol-v1';
+const CACHE = 'farol-v2';
 const ARQUIVOS = [
   '/sos.html', '/repassar.html', '/shared/protocol.js', '/manifest.webmanifest',
-  'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js',
+  '/vendor/qrcode.js', '/icone.svg',
 ];
 
 self.addEventListener('install', e => e.waitUntil(caches.open(CACHE).then(c => c.addAll(ARQUIVOS)).then(() => self.skipWaiting())));

@@ -15,10 +15,11 @@
 <body>
 <h2>Você está repassando um pedido de socorro</h2>
 <div class="card" id="card">Lendo alerta…</div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="/vendor/qrcode.js"></script>
 <script src="/shared/protocol.js"></script>
 <script>
 const P = window.FarolProtocolo;
+function desenharQR(el, texto) { const q = qrcode(0, 'L'); q.addData(texto); q.make(); el.innerHTML = q.createSvgTag({ cellSize: 4, margin: 2 }); }
 const card = document.getElementById('card');
 const idAparelho = (() => { try { let i = localStorage.getItem('farol.aparelho'); if (!i) { i = 'R' + P.novoId(); localStorage.setItem('farol.aparelho', i); } return i; } catch { return 'R' + P.novoId(); } })();
 const vistos = new Set();
@@ -41,7 +42,7 @@ const vistos = new Set();
     // Quem escaneou também está sem internet: vira mais um elo da corrente
     card.innerHTML = `${resumo}<p><b>Você também está sem internet.</b> Mostre este código para outra pessoa escanear:</p><div id="qr"></div>`;
     const link = `${location.origin}/repassar.html#${btoa(unescape(encodeURIComponent(JSON.stringify(alerta))))}`;
-    new QRCode(document.getElementById('qr'), { text:link, width:220, height:220, correctLevel:QRCode.CorrectLevel.L });
+    desenharQR(document.getElementById('qr'), link);
     try { const f = JSON.parse(localStorage.getItem('farol.fila') || '[]'); localStorage.setItem('farol.fila', JSON.stringify([...f, alerta])); } catch {}
   }
 })();
